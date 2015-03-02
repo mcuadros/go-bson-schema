@@ -17,27 +17,37 @@ type BSSuite struct{}
 
 var _ = Suite(&BSSuite{})
 
-func (s *BSSuite) TestValidator_ValidateMap(c *C) {
-	b, err := bson.Marshal(map[string]int{"foo_qux": 1, "bar": 2})
-	c.Assert(err, IsNil)
-
-	v := &Validator{}
-	v.Validate(bytes.NewReader(b))
-}
-
 type ExampleBasic struct {
-	BoolYes bool   `default:"true"`
-	BoolNon bool   `default:"false"`
-	String  string `default:"33"`
-	Int64   int64  `default:"64"`
-	Int8    int8   `default:"8"`
-	Byte    []byte `default:"bytes"`
-	Time    time.Time
+	Id              bson.ObjectId
+	Nil             *ExampleBasic
+	Map             map[string]string
+	Slice           []string
+	BoolYes         bool    `default:"true"`
+	BoolNon         bool    `default:"false"`
+	Float64         float64 `default:"64.21"`
+	String          string  `default:"33"`
+	Int64           int64   `default:"64"`
+	Int8            int8    `default:"8"`
+	Byte            []byte  `default:"bytes"`
+	Timestamp       bson.MongoTimestamp
+	JavaScript      bson.JavaScript
+	JavaScriptScope bson.JavaScript
+	RegEx           bson.RegEx
+	Symbol          bson.Symbol
+	Time            time.Time
 }
 
 func (s *BSSuite) TestValidator_ValidateStruct(c *C) {
 	e := &ExampleBasic{}
 	e.Time = time.Now()
+	e.Map = map[string]string{"mapfoo": "qux"}
+	e.Slice = []string{"qux", "foo"}
+	e.Id = bson.NewObjectId()
+	e.Timestamp = bson.MongoTimestamp(258)
+	e.JavaScript = bson.JavaScript{Code: "alert('foo')"}
+	e.JavaScriptScope = bson.JavaScript{"code", bson.M{"scope": nil}}
+	e.RegEx = bson.RegEx{Pattern: "qux", Options: "baz"}
+	e.Symbol = bson.Symbol("qux")
 	defaults.SetDefaults(e)
 
 	b, err := bson.Marshal(e)

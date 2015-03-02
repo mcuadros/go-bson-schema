@@ -1,8 +1,6 @@
 package bsonschema
 
 import (
-	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 )
@@ -29,6 +27,10 @@ const TypeMinKey = 0xFF
 type Validator struct{}
 
 func (v *Validator) Validate(bson io.Reader) error {
+	return v.decDocument(bson)
+}
+
+func (v *Validator) decDocument(bson io.Reader) error {
 	var len int32
 	if err := readInt32(bson, &len); err != nil {
 		return nil
@@ -39,7 +41,9 @@ func (v *Validator) Validate(bson io.Reader) error {
 		err = v.decElement(bson)
 	}
 
-	return err
+	fmt.Println("error", err)
+
+	return nil
 }
 
 func (v *Validator) decElement(bson io.Reader) error {
@@ -48,31 +52,59 @@ func (v *Validator) decElement(bson io.Reader) error {
 		return err
 	}
 
+	if typ[0] == x00 {
+		return io.EOF
+	}
+
 	var name []byte
 	if err := readCString(bson, &name); err != nil {
 		return err
 	}
 
-	fmt.Println("--", typ[0] == TypeInt32, string(name))
+	fmt.Printf("-->  %q  <--\n", string(name))
 
 	switch typ[0] {
+	case TypeDocument, TypeArray:
+		v.decDocument(bson)
+	case TypeObjectId:
+		v.validateObjectId(bson)
 	case TypeBool:
 		v.validateBool(bson)
 	case TypeInt32:
 		v.validateInt32(bson)
 	case TypeInt64:
 		v.validateInt64(bson)
-	case TypeString:
-		v.validateString(bson)
+	case TypeTimestamp:
+		v.validateInt64(bson)
+	case TypeDouble:
+		v.validateDouble(bson)
 	case TypeDate:
 		v.validateDate(bson)
 	case TypeBinary:
 		v.validateBinary(bson)
+	case TypeString, TypeCode, TypeSymbol:
+		v.validateString(bson)
+	case TypeCodeWithScope:
+		v.validateString(bson)
+		v.decDocument(bson)
+	case TypeRegexp:
+		v.validateRegexp(bson)
+	case TypeNull:
+		v.validateNil()
+	case TypeMaxKey, TypeMinKey:
 	default:
 		fmt.Println("non-supported type", typ)
 	}
 
 	return nil
+}
+
+func (v *Validator) validateObjectId(bson io.Reader) error {
+	var value [12]byte
+	_, err := bson.Read(value[:])
+	fmt.Println("----", value)
+
+	return err
 }
 
 func (v *Validator) validateBool(bson io.Reader) error {
@@ -99,10 +131,31 @@ func (v *Validator) validateInt64(bson io.Reader) error {
 	return err
 }
 
+func (v *Validator) validateDouble(bson io.Reader) error {
+	var value float64
+	err := readFloat64(bson, &value)
+	fmt.Println("----", value)
+
+	return err
+}
+
 func (v *Validator) validateString(bson io.Reader) error {
 	var value string
 	err := readString(bson, &value)
 	fmt.Println("----", value)
+
+	return err
+}
+
+func (v *Validator) validateRegexp(bson io.Reader) error {
+	var pattern, options []byte
+	err := readCString(bson, &pattern)
+	if err != nil {
+		return err
+	}
+
+	err = readCString(bson, &options)
+	fmt.Println("----", string(pattern), string(options))
 
 	return err
 }
@@ -117,75 +170,12 @@ func (v *Validator) validateDate(bson io.Reader) error {
 
 func (v *Validator) validateBinary(bson io.Reader) error {
 	var value []byte
-	err := readBytes(bson, &value)
-	fmt.Println("----", value)
+	err := readBinary(bson, &value)
+	fmt.Println("----", string(value))
 
 	return err
 }
 
-const x00 = byte(0)
-
-func readInt32(r io.Reader, i *int32) error {
-	return binary.Read(r, binary.LittleEndian, i)
-}
-
-func readInt64(r io.Reader, i *int64) error {
-	return binary.Read(r, binary.LittleEndian, i)
-}
-
-func readString(r io.Reader, s *string) error {
-	var b []byte
-	if err := readBytes(r, &b); err != nil {
-		return err
-	}
-
-	l := len(b)
-	if b[l-1] != x00 {
-		return errors.New("non-null terminated")
-	}
-
-	*s = string(b[:l-1])
+func (v *Validator) validateNil() error {
 	return nil
-}
-
-func readBytes(r io.Reader, b *[]byte) error {
-	var l int32
-	if err := readInt32(r, &l); err != nil {
-		return err
-	}
-
-	d := make([]byte, l)
-	if _, err := r.Read(d); err != nil {
-		return err
-	}
-
-	*b = d
-
-	return nil
-}
-
-func readByte(r io.Reader, b *byte) error {
-	var n [1]byte
-	if _, err := io.ReadFull(r, n[:]); err != nil {
-		return err
-	}
-
-	*b = n[0]
-	return nil
-}
-
-func readCString(r io.Reader, s *[]byte) error {
-	var b []byte
-	var n [1]byte
-	for {
-		if _, err := io.ReadFull(r, n[:]); err != nil {
-			return err
-		}
-
-		b = append(b, n[0])
-		if n[0] == x00 {
-			*s = b
-			return nil
-		}
-	}
 }
